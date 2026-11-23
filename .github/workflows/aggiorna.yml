@@ -1,0 +1,68 @@
+name: Aggiorna dashboard
+
+on:
+  schedule:
+    - cron: "17 */2 * * *"      # ogni 2 ore (orario UTC)
+  workflow_dispatch:             # pulsante "Run workflow" per aggiornare a mano
+    inputs:
+      completo:
+        description: "Riscarica tutto lo storico"
+        type: boolean
+        default: false
+      prova_notifica:
+        description: "Invia una notifica di prova al telefono"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: aggiorna-dashboard
+  cancel-in-progress: false
+
+jobs:
+  aggiorna:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TZ: Europe/Rome
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Scarica da Garmin e cifra
+        env:
+          GARMIN_PERSONAL_API_KEY: ${{ secrets.GARMIN_PERSONAL_API_KEY }}
+          DASHBOARD_PASSWORD: ${{ secrets.DASHBOARD_PASSWORD }}
+          PROVA_NOTIFICA: ${{ inputs.prova_notifica }}
+        run: python sync.py ${{ inputs.completo && '--completo' || '' }}
+
+      - name: Pubblica se ci sono novità
+        # I dati cifrati sostituiscono sempre l'ultimo commit di aggiornamento (amend):
+        # lo storico del repository non cresce a ogni giro.
+        # Gira anche se lo scarico è fallito, per pubblicare l'esito (docs/stato.json) che l'app mostra.
+        if: always()
+        run: |
+          git add docs/data.enc docs/tracce.enc docs/stato.json 2>/dev/null || git add docs/stato.json 2>/dev/null || true
+          if git diff --cached --quiet; then
+            echo "Nessuna modifica."; exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          MSG="Aggiornamento dati $(date +'%Y-%m-%d %H:%M')"
+          if [ "$(git log -1 --pretty=%an)" = "github-actions[bot]" ]; then
+            git commit --amend -m "$MSG"
+            git push --force-with-lease
+          else
+            git commit -m "$MSG"
+            git push
+          fi
