@@ -1,0 +1,4 @@
+garmin-connect-personal-api-python==1.1.0
+cryptography>=42
+fitdecode==0.11.0
+pywebpush==2.5.0
