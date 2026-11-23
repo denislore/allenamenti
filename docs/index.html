@@ -254,6 +254,7 @@ footer button { background: none; border: 0; color: var(--ink2); text-decoration
           <button class="iconbtn" id="reload" aria-label="Ricarica">↻</button></div>
       </div>
       <button class="avvisostato hidden" id="avvisostato"></button>
+      <div class="avvisostato info hidden" id="avvisometeo" role="status"></div>
       <button class="inbox hidden" id="inbox"></button>
       <div class="chips" id="sportchips"></div>
       <div class="chips" id="periodchips"></div>
@@ -911,6 +912,27 @@ function renderAvviso() {
   else if (!STATO && DATA?.aggiornato && oreFa(DATA.aggiornato) > 72) testo = `⚠ Dati fermi al ${fOraBreve(DATA.aggiornato)}: tocca per sapere cosa fare →`;
   else if (gg != null && gg <= 14) { testo = `${gg <= 0 ? "⚠ " : ""}La chiave Garmin ${quandoScade(gg)}: rinnovala →`; classe = gg <= 0 ? "errore" : ""; }
   b.textContent = testo; b.className = `avvisostato ${classe}`; b.classList.toggle("hidden", !testo);
+}
+
+/* --- meteo di domani alle 6:00 a Caprino Veronese (Open-Meteo): avviso se non è sereno o poco nuvoloso --- */
+const LUOGO_METEO = { nome: "Caprino Veronese", lat: 45.605, lon: 10.795 };
+async function controllaMeteoDomani() {
+  const b = $("avvisometeo");
+  try {
+    const d = new Date(); d.setDate(d.getDate() + 1);
+    const domani = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${LUOGO_METEO.lat}&longitude=${LUOGO_METEO.lon}` +
+      `&hourly=weather_code,temperature_2m,precipitation_probability&timezone=Europe%2FRome&start_date=${domani}&end_date=${domani}`;
+    const r = await fetch(url, { cache: "no-store" });
+    if (!r.ok) throw new Error();
+    const o = (await r.json()).hourly || {}, i = (o.time || []).indexOf(`${domani}T06:00`);
+    const c = i >= 0 ? o.weather_code?.[i] : null;
+    if (c == null || c <= 1) { b.classList.add("hidden"); return; }        // sereno o poco nuvoloso (o dato mancante): nessun avviso
+    const v = meteoVoce(c), t = o.temperature_2m?.[i], p = o.precipitation_probability?.[i];
+    b.textContent = `${v[1]} Domani alle 6 a ${LUOGO_METEO.nome}: ${v[2]}` +
+      (t != null ? ` · ${nf0.format(t)} °C` : "") + (p ? ` · probabilità di pioggia ${p}%` : "");
+    b.classList.remove("hidden");
+  } catch { b.classList.add("hidden"); }                                   // senza rete: nessun avviso
 }
 
 /* ======================= Tracce, mappe e percorsi ======================= */
@@ -2213,6 +2235,7 @@ async function apri(pw, ricorda) {
   // gli abbinamenti arrivano da GitHub: se tardano si mostra subito il resto e si ridisegna quando arrivano
   const lettura = caricaAbbinamenti();
   const letturaStato = caricaStato().then(() => renderAvviso());
+  controllaMeteoDomani();
   const inTempo = await Promise.race([lettura.then(() => true), new Promise(r => setTimeout(() => r(false), 6000))]);
   if (!inTempo) lettura.then(() => { ricalcolaPercorsi(); render(); ridisegnaScheda(); });
   ricalcolaPercorsi();
