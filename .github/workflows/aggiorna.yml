@@ -52,17 +52,28 @@ jobs:
         # Gira anche se lo scarico è fallito, per pubblicare l'esito (docs/stato.json) che l'app mostra.
         if: always()
         run: |
-          git add docs/data.enc docs/tracce.enc docs/stato.json 2>/dev/null || git add docs/stato.json 2>/dev/null || true
+          # aggiunge solo i file che esistono (un file mancante non deve far saltare gli altri)
+          for f in docs/data.enc docs/tracce.enc docs/stato.json; do
+            [ -f "$f" ] && git add "$f"
+          done
           if git diff --cached --quiet; then
             echo "Nessuna modifica."; exit 0
           fi
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # l'app può aver salvato abbinamenti/notifiche durante il giro: si riparte dall'ultima versione remota
+          git stash
+          git fetch origin main
+          git reset --hard origin/main
+          git stash pop
+          for f in docs/data.enc docs/tracce.enc docs/stato.json; do
+            [ -f "$f" ] && git add "$f"
+          done
           MSG="Aggiornamento dati $(date +'%Y-%m-%d %H:%M')"
           if [ "$(git log -1 --pretty=%an)" = "github-actions[bot]" ]; then
             git commit --amend -m "$MSG"
-            git push --force-with-lease
+            git push --force-with-lease=main:origin/main origin HEAD:main
           else
             git commit -m "$MSG"
-            git push
+            git push origin HEAD:main
           fi
