@@ -1,0 +1,53 @@
+name: Applica modifiche
+
+# Riceve una modifica al codice (patch git, compressa e in base64) tramite "repository dispatch".
+# Solo chi ha permesso di scrittura sul repository può inviarla.
+# Se la patch non si applica in modo pulito, il workflow si ferma senza toccare nulla.
+# Nota: GitHub non permette a questo workflow di modificare i file in .github/workflows/.
+
+on:
+  repository_dispatch:
+    types: [applica-modifiche]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: aggiorna-dashboard        # stesso gruppo di aggiorna.yml: mai in contemporanea
+  cancel-in-progress: false
+
+jobs:
+  applica:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Decodifica la modifica
+        env:
+          PATCH_B64: ${{ github.event.client_payload.patch }}
+        run: |
+          if [ -z "$PATCH_B64" ]; then echo "Nessuna patch ricevuta."; exit 1; fi
+          printf '%s' "$PATCH_B64" | base64 -d | gunzip > "$RUNNER_TEMP/modifica.patch"
+          echo "File toccati:"; git apply --numstat "$RUNNER_TEMP/modifica.patch"
+          if grep -qE '^\+\+\+ b/\.github/workflows/' "$RUNNER_TEMP/modifica.patch"; then
+            echo "La patch modifica .github/workflows/: GitHub non lo consente da qui. Caricala a mano."; exit 1
+          fi
+
+      - name: Applica e pubblica
+        env:
+          MSG: ${{ github.event.client_payload.messaggio }}
+        run: |
+          git apply --check "$RUNNER_TEMP/modifica.patch"
+          git apply "$RUNNER_TEMP/modifica.patch"
+          git add -A
+          if git diff --cached --quiet; then echo "Nessuna modifica da applicare."; exit 0; fi
+          # nome diverso da github-actions[bot]: aggiorna.yml non fonde questo commit con quelli dei dati
+          git config user.name  "modifiche-copilot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "${MSG:-Modifica al codice}"
+          for t in 1 2 3; do
+            git push origin HEAD:main && exit 0
+            git pull --rebase origin main
+          done
+          exit 1
