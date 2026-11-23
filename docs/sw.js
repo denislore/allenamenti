@@ -4,7 +4,7 @@
    - Librerie e immagini: copia salvata, aggiornata in background.
    - Dati cifrati (.enc) e stato: non passano di qui, li gestisce l'app (che ne tiene una copia per l'offline).
    - Notifiche push inviate da GitHub Actions e numero sull'icona. */
-const VERSIONE = "v2";
+const VERSIONE = "v3";
 const CACHE = "allenamenti-app-" + VERSIONE;
 const FILE = ["./", "index.html", "chart.umd.min.js", "leaflet.js", "leaflet.css", "manifest.webmanifest",
   "icon-192.png", "icon-512.png", "icon-maskable-192.png", "icon-maskable-512.png", "apple-touch-icon.png", "images/layers.png", "images/layers-2x.png"];
@@ -33,7 +33,7 @@ self.addEventListener("fetch", e => {
   }
   e.respondWith(caches.match(r).then(salvata => {
     const rete = fetch(r).then(res => { if (res.ok) { const copia = res.clone(); caches.open(CACHE).then(c => c.put(r, copia)); } return res; })
-      .catch(() => salvata);
+      .catch(() => salvata || Response.error());
     return salvata || rete;
   }));
 });

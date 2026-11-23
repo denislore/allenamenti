@@ -497,7 +497,7 @@ function finestra(p, rif = new Date()) {
   else if (p === "stag") { const y = ini.getMonth() >= 10 ? ini.getFullYear() : ini.getFullYear() - 1; ini.setFullYear(y, 10, 1); }
   return [ini, fine];
 }
-const annoPrima = d => { const x = new Date(d); x.setFullYear(x.getFullYear() - 1); return x; };
+const annoPrima = d => { const x = new Date(d), m = x.getMonth(); x.setFullYear(x.getFullYear() - 1); if (x.getMonth() !== m) x.setDate(0); return x; };
 const inFin = (a, [i, f]) => a.d >= i && a.d <= f;
 const lunedi = d => { const x = new Date(d); x.setHours(0, 0, 0, 0); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x; };
 
@@ -1649,11 +1649,15 @@ const standalone = () => matchMedia("(display-mode: standalone)").matches || nav
 // scrive nel repository un file JSON cifrato con la password della dashboard
 async function scriviFileCifrato(path, obj, messaggio) {
   const contenuto = b64daBytes(new TextEncoder().encode(JSON.stringify(await cifraJson(obj, PW))));
-  const g = await ghApi(`contents/${path}?ref=main`);
-  if (g.status === 401) throw new Error("Token GitHub non valido o scaduto.");
-  const sha = g.ok ? (await g.json()).sha : null;
-  const r = await ghApi(`contents/${path}`, { method: "PUT", body: JSON.stringify({ message: messaggio, content: contenuto, branch: "main", ...(sha ? { sha } : {}) }) });
-  if (!r.ok) throw new Error(r.status === 401 ? "Token GitHub non valido o scaduto." : r.status === 403 || r.status === 404 ? "Il token non può scrivere nel repository (serve Contents: Read and write)." : `Errore GitHub ${r.status}.`);
+  for (let t = 0; t < 2; t++) {            // se il file è cambiato nel frattempo (409/422) si riprova con lo sha nuovo
+    const g = await ghApi(`contents/${path}?ref=main`);
+    if (g.status === 401) throw new Error("Token GitHub non valido o scaduto.");
+    const sha = g.ok ? (await g.json()).sha : null;
+    const r = await ghApi(`contents/${path}`, { method: "PUT", body: JSON.stringify({ message: messaggio, content: contenuto, branch: "main", ...(sha ? { sha } : {}) }) });
+    if (r.ok) return;
+    if ((r.status === 409 || r.status === 422) && t === 0) continue;
+    throw new Error(r.status === 401 ? "Token GitHub non valido o scaduto." : r.status === 403 || r.status === 404 ? "Il token non può scrivere nel repository (serve Contents: Read and write)." : `Errore GitHub ${r.status}.`);
+  }
 }
 async function statoNotifiche() {
   if (!supportoNotifiche()) return { ok: false, testo: standalone() ? "Questo iPhone non supporta le notifiche delle web app: serve iOS 16.4 o successivo." : "Le notifiche funzionano solo aprendo l'app dall'icona sulla schermata Home." };
