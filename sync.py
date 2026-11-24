@@ -638,6 +638,7 @@ def aggiorna(password: str, args, notif: dict | None) -> None:
         else:
             recupero, recupero_diag = scarica_recupero(client, oggi - timedelta(days=STORICO_HRV_GG), oggi)
         recupero = [{k: v for k, v in r.items()} for r in recupero]
+        bb_24h = rec.ultime_24h(recupero, time.time())
         n_risv = rec.risveglio(recupero, sonno)
         print(f"  Body Battery al risveglio: {n_risv} giorni ricavati dalla serie e dall'ora di fine sonno.")
         fc_giorni = aggiorna_fc_riposo(client, recupero, (prec or {}).get("fc_giorni"), oggi)
@@ -691,6 +692,7 @@ def aggiorna(password: str, args, notif: dict | None) -> None:
     if scrivi_se_cambiato(OUT_FILE, {"attivita": attivita, "hrv": hrv, "percorsi": percorsi, "catturate": catturate,
                                      "da_classificare": da_classificare, "sonno": sonno, "sonno_diag": sonno_diag,
                                      "recupero": recupero, "recupero_diag": recupero_diag, "fc_giorni": fc_giorni,
+                                     "bb_24h": bb_24h,
                                      "recupero_campi": CAMPI_RECUPERO or (prec or {}).get("recupero_campi"), "meteo": meteo,
                                      "sagome": sagome(attivita, tracce["tracce"]),
                                      "notificate": notificate}, prec, password):

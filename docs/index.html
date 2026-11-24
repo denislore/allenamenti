@@ -266,7 +266,7 @@ footer button { background: none; border: 0; color: var(--ink2); text-decoration
       <h2>Body Battery</h2><p class="sub" id="bbsub"></p>
       <div class="kpis" id="bbkpi"></div>
       <div class="selperiodo"><label for="bbper">Andamento</label>
-        <select id="bbper"><option value="7">ultimi 7 giorni</option><option value="30">ultimi 30 giorni</option><option value="365">ultimi 12 mesi</option></select></div>
+        <select id="bbper"><option value="1">ultime 24 ore</option><option value="7">ultimi 7 giorni</option><option value="30">ultimi 30 giorni</option><option value="365">ultimi 12 mesi</option></select></div>
       <p class="sub" id="bb1s" style="margin-top:8px"></p>
       <div class="chartbox"><canvas id="bb1"></canvas></div>
     </section>
@@ -766,6 +766,7 @@ function renderBodyBattery() {
   $("bbkpi").innerHTML = kpi(etichetta, valore, giro || "&nbsp;") +
     kpi("Al risveglio", uR?.bb_risveglio, uR ? (uR.data === oggi ? "stamattina" : `il ${dataBreve(uR.data)}`) : "dato non disponibile");
   const n = periodoBB(); $("bbper").value = String(n);
+  if (n === 1) { renderBB24(); return; }
   let righe, etichette;
   if (n > 31) {                    // 12 mesi: medie settimanali (da lunedì) di minimo, massimo e risveglio
     righe = perSettimana(R.filter(r => r.data >= giorniFa(n - 1)), ["bb_min", "bb_max", "bb_risveglio"]);
@@ -788,7 +789,26 @@ function renderBodyBattery() {
     { type: "line", label: "Al risveglio", data: righe.map(r => r.bb_risveglio ?? null), borderColor: css("--s1"), backgroundColor: css("--s1"),
       borderWidth: 2, pointRadius: n > 7 ? 2 : 4, pointHoverRadius: 5, tension: .25, spanGaps: true } ] }, options: o });
 }
-const periodoBB = () => { const n = Number(store.get("pbb")); return [7, 30, 365].includes(n) ? n : 7; };
+// ultime 24 ore: la serie arriva da sync.py (DATA.bb_24h = [[epoch_ms, livello]], un punto ogni 15 minuti)
+function renderBB24() {
+  const P = (DATA.bb_24h || []).filter(p => p[0] >= Date.now() - 864e5 - 9e5);
+  const ora = t => new Intl.DateTimeFormat("it-IT", { hour: "2-digit", minute: "2-digit" }).format(new Date(t));
+  const quandoOra = t => `${new Date(t).toDateString() === new Date().toDateString() ? "oggi" : "ieri"} alle ${ora(t)}`;
+  $("bb1s").textContent = P.length
+    ? `Livello ogni 15 minuti · da ${quandoOra(P[0][0])} a ${quandoOra(P.at(-1)[0])}`
+    : "Andamento delle ultime 24 ore non ancora disponibile: arriva con il prossimo aggiornamento dei dati.";
+  const o = baseOpts({ tooltipFmt: v => nf0.format(v) });
+  o.scales.y.min = 0; o.scales.y.max = 100; o.scales.y.beginAtZero = true;
+  o.scales.x.ticks = { ...(o.scales.x.ticks || {}), maxTicksLimit: 8, autoSkip: true, maxRotation: 0 };
+  o.plugins.tooltip.callbacks.title = x => { const t = new Date(P[x[0].dataIndex][0]);
+    return `${t.toDateString() === new Date().toDateString() ? "Oggi" : "Ieri"}, ${ora(t)}`; };
+  o.plugins.tooltip.filter = c => c.raw != null;
+  o.plugins.tooltip.callbacks.label = c => `Body Battery: ${nf0.format(c.raw)}`;
+  disegna("bb1", { type: "line", data: { labels: P.map(p => ora(p[0])), datasets: [
+    { label: "Body Battery", data: P.map(p => p[1]), borderColor: css("--s1"), backgroundColor: css("--s1") + "33",
+      fill: true, borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, tension: .3 } ] }, options: o });
+}
+const periodoBB = () => { const n = Number(store.get("pbb")); return [1, 7, 30, 365].includes(n) ? n : 7; };
 
 /* ======================= Ultima uscita ======================= */
 const ORDINE_ULTIMA = {

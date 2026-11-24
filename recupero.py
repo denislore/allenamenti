@@ -221,6 +221,25 @@ def risveglio(recupero: list[dict], sonno: list[dict]) -> int:
     return fatti
 
 
+def ultime_24h(recupero: list[dict], adesso: float, passo_min: int = 15) -> list[list[int]]:
+    """Andamento delle ultime 24 ore: [[epoch_ms, livello]], un punto ogni `passo_min` minuti (l'ultimo di ogni intervallo).
+    Va chiamata prima di `risveglio`, che toglie le serie."""
+    punti = {}
+    for r in recupero:
+        serie = r.get("_bb_serie")
+        if not serie:
+            continue
+        mezzanotte = datetime.fromisoformat(r["data"]).replace(tzinfo=FUSO).timestamp()
+        for m, v in serie:
+            t = mezzanotte + m * 60
+            if adesso - 86400 <= t <= adesso + 600:
+                punti[t] = v
+    blocchi = {}
+    for t in sorted(punti):
+        blocchi[int(t // (passo_min * 60))] = (t, punti[t])
+    return [[int(t * 1000), round(v)] for t, v in blocchi.values()]
+
+
 def unisci(*liste: list[dict]) -> list[dict]:
     per_data: dict[str, dict] = {}
     for lista in liste:
