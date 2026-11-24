@@ -262,6 +262,12 @@ footer button { background: none; border: 0; color: var(--ink2); text-decoration
   </header>
 
   <main class="wrap" id="view-pano">
+    <section class="card hidden" id="bbcard">
+      <h2>Body Battery</h2><p class="sub" id="bbsub"></p>
+      <div class="kpis" id="bbkpi"></div>
+      <h3 class="minititolo">Ultimi 7 giorni</h3><p class="sub">Barra: minimo–massimo del giorno · punto: valore al risveglio</p>
+      <div class="chartbox"><canvas id="bb1"></canvas></div>
+    </section>
     <section class="card ultima hidden" id="ultimacard" role="button" tabindex="0"></section>
     <div class="periodo" id="periodolbl"></div>
     <div class="kpis" id="kpis" style="margin-top:12px"></div>
@@ -736,9 +742,38 @@ function render() {
     $("view-" + k).classList.toggle("hidden", v !== k);
     $("tab-" + k).setAttribute("aria-pressed", v === k);
   });
-  if (pano) { renderUltima(); renderKpi(); renderForma(); renderSettimane(); renderMesi(); renderTrend(); renderRecord(); }
+  if (pano) { renderBodyBattery(); renderUltima(); renderKpi(); renderForma(); renderSettimane(); renderMesi(); renderTrend(); renderRecord(); }
   else if (v === "perc") renderPercorsi();
   else renderSonno();
+}
+
+/* ======================= Body Battery (Panoramica) ======================= */
+function renderBodyBattery() {
+  const card = $("bbcard");
+  const R = (DATA.recupero || []).filter(r => r.bb_max != null || r.bb_min != null || r.bb_risveglio != null || r.bb_ultimo != null);
+  if (!R.length) { card.classList.add("hidden"); charts.bb1?.destroy(); delete charts.bb1; return; }
+  card.classList.remove("hidden");
+  const u = R.at(-1), oggi = giorniFa(0);
+  const [etichetta, valore] = u.bb_ultimo != null && u.data === oggi ? ["Ultimo valore di oggi", u.bb_ultimo]
+    : u.bb_risveglio != null ? ["Al risveglio", u.bb_risveglio] : ["Massima del giorno", u.bb_max ?? u.bb_ultimo];
+  const quando = u.data === oggi ? "oggi" : u.data === giorniFa(1) ? "ieri" : `il ${dataBreve(u.data)}`;
+  $("bbsub").textContent = `Dato Garmin di ${quando} · da 0 a 100`;
+  const kpi = (l, v, d) => `<div class="kpi"><div class="l">${l}</div><div class="v">${v == null ? "–" : nf0.format(v)}</div><div class="d">${d}</div></div>`;
+  const giro = [u.bb_min != null ? `min ${nf0.format(u.bb_min)}` : "", u.bb_max != null ? `max ${nf0.format(u.bb_max)}` : ""].filter(Boolean).join(" · ");
+  const sett = R.filter(r => r.data >= giorniFa(6)), mRisv = media(sett.map(r => r.bb_risveglio).filter(v => v != null));
+  $("bbkpi").innerHTML = kpi(etichetta, valore, giro || "&nbsp;") +
+    kpi("Media al risveglio", mRisv, mRisv == null ? "dato non disponibile" : "ultimi 7 giorni");
+  const giorni = Array.from({ length: 7 }, (_, i) => giorniFa(6 - i)), per = new Map(R.map(r => [r.data, r]));
+  const righe = giorni.map(g => per.get(g) || {});
+  const o = baseOpts({ tooltipFmt: v => nf0.format(v) });
+  o.scales.y.min = 0; o.scales.y.max = 100; o.scales.y.beginAtZero = true;
+  o.plugins.tooltip.filter = c => c.raw != null;
+  o.plugins.tooltip.callbacks.label = c => Array.isArray(c.raw) ? `Min–max: ${nf0.format(c.raw[0])}–${nf0.format(c.raw[1])}` : `${c.dataset.label}: ${nf0.format(c.raw)}`;
+  disegna("bb1", { type: "bar", data: { labels: giorni.map(g => g === oggi ? "oggi" : dataBreve(g)), datasets: [
+    { type: "bar", label: "Min–max", data: righe.map(r => r.bb_min != null && r.bb_max != null ? [r.bb_min, r.bb_max] : null),
+      backgroundColor: css("--s3") + "66", borderColor: css("--s3"), borderWidth: 1, borderRadius: 4, borderSkipped: false },
+    { type: "line", label: "Al risveglio", data: righe.map(r => r.bb_risveglio ?? null), borderColor: css("--s1"), backgroundColor: css("--s1"),
+      borderWidth: 2, pointRadius: 4, pointHoverRadius: 5, tension: .25, spanGaps: true } ] }, options: o });
 }
 
 /* ======================= Ultima uscita ======================= */
