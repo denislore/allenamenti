@@ -638,6 +638,8 @@ def aggiorna(password: str, args, notif: dict | None) -> None:
         else:
             recupero, recupero_diag = scarica_recupero(client, oggi - timedelta(days=STORICO_HRV_GG), oggi)
         recupero = [{k: v for k, v in r.items()} for r in recupero]
+        n_risv = rec.risveglio(recupero, sonno)
+        print(f"  Body Battery al risveglio: {n_risv} giorni ricavati dalla serie e dall'ora di fine sonno.")
         fc_giorni = aggiorna_fc_riposo(client, recupero, (prec or {}).get("fc_giorni"), oggi)
         recupero = unisci_fc(recupero, fc_giorni)
 
