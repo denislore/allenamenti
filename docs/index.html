@@ -135,9 +135,10 @@ nav.tabbar button[aria-pressed=true] { border-color: var(--ink); color: var(--in
 .stats .v { font-size: 17px; font-weight: 650; font-variant-numeric: tabular-nums; }
 .stats .v .unita { display: block; font-size: 11px; font-weight: 500; color: var(--ink2); }
 .nw { white-space: nowrap; }
-.selperiodo { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 14px; padding: 0 2px; }
+.selperiodo { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-top: 14px; padding: 0 2px; }
 .switch2 { display: inline-flex; background: var(--surface); border: 1px solid var(--ring); border-radius: 10px; padding: 2px; }
 .switch2 button { border: 0; background: none; color: var(--ink2); font: inherit; font-size: 14px; padding: 6px 12px; border-radius: 8px; cursor: pointer; }
+.switch2.per { flex-wrap: wrap; }
 .switch2 button[aria-pressed="true"] { background: var(--s7); color: #fff; }
 .selperiodo label { color: var(--ink2); font-size: 14px; }
 .selperiodo select { appearance: none; -webkit-appearance: none; background: var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%23999' stroke-width='2'/%3E%3C/svg%3E") no-repeat right 12px center;
@@ -268,8 +269,8 @@ footer button { background: none; border: 0; color: var(--ink2); text-decoration
     <section class="card hidden" id="bbcard">
       <h2>Body Battery</h2><p class="sub" id="bbsub"></p>
       <div class="kpis" id="bbkpi"></div>
-      <div class="selperiodo"><label for="bbper">Andamento</label>
-        <select id="bbper"><option value="1">ultime 24 ore</option><option value="7">ultimi 7 giorni</option><option value="30">ultimi 30 giorni</option><option value="365">ultimi 12 mesi</option></select></div>
+      <div class="selperiodo"><span>Andamento</span>
+        <div class="switch2 per" id="bbper" role="group" aria-label="Periodo"><button type="button" data-v="1">24 ore</button><button type="button" data-v="7">7 giorni</button><button type="button" data-v="30">30 giorni</button><button type="button" data-v="365">12 mesi</button></div></div>
       <p class="sub" id="bb1s" style="margin-top:8px"></p>
       <div class="chartbox"><canvas id="bb1"></canvas></div>
     </section>
@@ -278,7 +279,7 @@ footer button { background: none; border: 0; color: var(--ink2); text-decoration
       <div class="kpis" id="slkpi"></div>
       <div class="selperiodo"><span class="switch2" role="group" aria-label="Valore nel grafico">
           <button type="button" id="slore" aria-pressed="true">Ore di sonno</button><button type="button" id="slpunt" aria-pressed="false">Punteggio</button></span>
-        <select id="slper" aria-label="Periodo"><option value="1">ultime 24 ore</option><option value="7">ultimi 7 giorni</option><option value="30">ultimi 30 giorni</option><option value="365">ultimi 12 mesi</option></select></div>
+        <div class="switch2 per" id="slper" role="group" aria-label="Periodo"><button type="button" data-v="1">24 ore</button><button type="button" data-v="7">7 giorni</button><button type="button" data-v="30">30 giorni</button><button type="button" data-v="365">12 mesi</button></div></div>
       <p class="sub" id="sl1s" style="margin-top:8px"></p>
       <div class="chartbox"><canvas id="sl1"></canvas></div>
     </section>
@@ -822,7 +823,7 @@ function renderBodyBattery() {
   const uR = [...R].reverse().find(r => r.bb_risveglio != null);
   $("bbkpi").innerHTML = kpi(etichetta, valore, giro || "&nbsp;") +
     kpi("Al risveglio", uR?.bb_risveglio, uR ? (uR.data === oggi ? "stamattina" : `il ${dataBreve(uR.data)}`) : "dato non disponibile");
-  const n = periodoBB(); $("bbper").value = String(n);
+  const n = periodoBB(); segna("bbper", n);
   if (n === 1) { renderBB24(); return; }
   let righe, etichette;
   if (n > 31) {                    // 12 mesi: medie settimanali (da lunedì) di minimo, massimo e risveglio
@@ -882,7 +883,7 @@ function renderSonnoPano() {
       u.qualita ? (QUALITA[u.qualita] || esc(u.qualita)) : u.punteggio != null ? "da 0 a 100" : "dato non disponibile") +
     kpi("Ore di sonno", `${Math.floor(Math.round(u.totale / 60) / 60)}h ${String(Math.round(u.totale / 60) % 60).padStart(2, "0")}min`, "ultima notte");
   const n = periodoSL(), val = valoreSL(), punt = val === "punteggio";
-  $("slper").value = String(n); $("slore").setAttribute("aria-pressed", !punt); $("slpunt").setAttribute("aria-pressed", punt);
+  segna("slper", n); $("slore").setAttribute("aria-pressed", !punt); $("slpunt").setAttribute("aria-pressed", punt);
   const o = baseOpts({ tooltipFmt: v => punt ? nf0.format(v) : hm(v * 3600) });
   o.plugins.tooltip.filter = c => c.raw != null;
   if (punt) { o.scales.y.min = 0; o.scales.y.max = 100; }
@@ -2452,10 +2453,11 @@ document.addEventListener("click", e => {
   if (att) { e.stopPropagation(); vai("att", Number(att.dataset.att)); }
   else if (perc) vai("perc", Number(perc.dataset.perc));
 });
-$("slper").addEventListener("change", e => { store.set("psl", e.target.value); renderSonnoPano(); });
+$("slper").addEventListener("click", e => { const b = e.target.closest("button[data-v]"); if (!b) return; store.set("psl", b.dataset.v); renderSonnoPano(); });
 $("slore").addEventListener("click", () => { store.set("vsl", "ore"); renderSonnoPano(); });
 $("slpunt").addEventListener("click", () => { store.set("vsl", "punteggio"); renderSonnoPano(); });
-$("bbper").addEventListener("change", e => { store.set("pbb", e.target.value); renderBodyBattery(); });
+$("bbper").addEventListener("click", e => { const b = e.target.closest("button[data-v]"); if (!b) return; store.set("pbb", b.dataset.v); renderBodyBattery(); });
+function segna(id, n) { $(id).querySelectorAll("button[data-v]").forEach(b => b.setAttribute("aria-pressed", b.dataset.v === String(n))); }
 $("snper").addEventListener("change", e => { store.set("psonno", e.target.value); renderSonno(); });
 $("ultimacard").addEventListener("keydown", e => { if (e.key === "Enter") vai("att", Number($("ultimacard").dataset.att)); });
 $("logout").onclick = () => { store.del("pw"); try { sessionStorage.removeItem("pw"); } catch {} location.reload(); };
