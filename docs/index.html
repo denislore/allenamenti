@@ -136,6 +136,9 @@ nav.tabbar button[aria-pressed=true] { border-color: var(--ink); color: var(--in
 .stats .v .unita { display: block; font-size: 11px; font-weight: 500; color: var(--ink2); }
 .nw { white-space: nowrap; }
 .selperiodo { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 14px; padding: 0 2px; }
+.switch2 { display: inline-flex; background: var(--surface); border: 1px solid var(--ring); border-radius: 10px; padding: 2px; }
+.switch2 button { border: 0; background: none; color: var(--ink2); font: inherit; font-size: 14px; padding: 6px 12px; border-radius: 8px; cursor: pointer; }
+.switch2 button[aria-pressed="true"] { background: var(--s7); color: #fff; }
 .selperiodo label { color: var(--ink2); font-size: 14px; }
 .selperiodo select { appearance: none; -webkit-appearance: none; background: var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%23999' stroke-width='2'/%3E%3C/svg%3E") no-repeat right 12px center;
   color: var(--ink); border: 1px solid var(--ring); border-radius: 12px; padding: 9px 36px 9px 14px; font: inherit; font-size: 15px; font-weight: 600; }
@@ -269,6 +272,15 @@ footer button { background: none; border: 0; color: var(--ink2); text-decoration
         <select id="bbper"><option value="1">ultime 24 ore</option><option value="7">ultimi 7 giorni</option><option value="30">ultimi 30 giorni</option><option value="365">ultimi 12 mesi</option></select></div>
       <p class="sub" id="bb1s" style="margin-top:8px"></p>
       <div class="chartbox"><canvas id="bb1"></canvas></div>
+    </section>
+    <section class="card hidden" id="slcard">
+      <h2>Sonno</h2><p class="sub" id="slsub"></p>
+      <div class="kpis" id="slkpi"></div>
+      <div class="selperiodo"><span class="switch2" role="group" aria-label="Valore nel grafico">
+          <button type="button" id="slore" aria-pressed="true">Ore di sonno</button><button type="button" id="slpunt" aria-pressed="false">Punteggio</button></span>
+        <select id="slper" aria-label="Periodo"><option value="1">ultime 24 ore</option><option value="7">ultimi 7 giorni</option><option value="30">ultimi 30 giorni</option><option value="365">ultimi 12 mesi</option></select></div>
+      <p class="sub" id="sl1s" style="margin-top:8px"></p>
+      <div class="chartbox"><canvas id="sl1"></canvas></div>
     </section>
     <section class="card ultima hidden" id="ultimacard" role="button" tabindex="0"></section>
     <div class="periodo" id="periodolbl"></div>
@@ -744,7 +756,7 @@ function render() {
     $("view-" + k).classList.toggle("hidden", v !== k);
     $("tab-" + k).setAttribute("aria-pressed", v === k);
   });
-  if (pano) { renderBodyBattery(); renderUltima(); renderKpi(); renderForma(); renderSettimane(); renderMesi(); renderTrend(); renderRecord(); }
+  if (pano) { renderBodyBattery(); renderSonnoPano(); renderUltima(); renderKpi(); renderForma(); renderSettimane(); renderMesi(); renderTrend(); renderRecord(); }
   else if (v === "perc") renderPercorsi();
   else renderSonno();
 }
@@ -809,6 +821,57 @@ function renderBB24() {
       fill: true, borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, tension: .3 } ] }, options: o });
 }
 const periodoBB = () => { const n = Number(store.get("pbb")); return [1, 7, 30, 365].includes(n) ? n : 7; };
+
+/* ======================= Sonno (Panoramica) ======================= */
+const periodoSL = () => { const n = Number(store.get("psl")); return [1, 7, 30, 365].includes(n) ? n : 7; };
+const valoreSL = () => store.get("vsl") === "punteggio" ? "punteggio" : "ore";
+function renderSonnoPano() {
+  const card = $("slcard"), S = (DATA.sonno || []).filter(x => x.totale);
+  if (!S.length) { card.classList.add("hidden"); charts.sl1?.destroy(); delete charts.sl1; return; }
+  card.classList.remove("hidden");
+  const u = S.at(-1), oggi = giorniFa(0), ore = sec => sec / 3600;
+  const quando = u.data === oggi ? "stanotte" : u.data === giorniFa(1) ? "la notte scorsa" : `notte del ${dataBreve(u.data)}`;
+  $("slsub").textContent = `Dato Garmin di ${quando}${u.inizio && u.fine ? ` · ${u.inizio} → ${u.fine}` : ""}`;
+  const kpi = (l, v, d) => `<div class="kpi"><div class="l">${l}</div><div class="v">${v ?? "–"}</div><div class="d">${d}</div></div>`;
+  $("slkpi").innerHTML = kpi("Punteggio", u.punteggio != null ? nf0.format(u.punteggio) : null,
+      u.qualita ? (QUALITA[u.qualita] || esc(u.qualita)) : u.punteggio != null ? "da 0 a 100" : "dato non disponibile") +
+    kpi("Ore di sonno", `${Math.floor(Math.round(u.totale / 60) / 60)}h ${String(Math.round(u.totale / 60) % 60).padStart(2, "0")}min`, "ultima notte");
+  const n = periodoSL(), val = valoreSL(), punt = val === "punteggio";
+  $("slper").value = String(n); $("slore").setAttribute("aria-pressed", !punt); $("slpunt").setAttribute("aria-pressed", punt);
+  const o = baseOpts({ tooltipFmt: v => punt ? nf0.format(v) : hm(v * 3600) });
+  o.plugins.tooltip.filter = c => c.raw != null;
+  if (punt) { o.scales.y.min = 0; o.scales.y.max = 100; }
+  const colore = punt ? css("--s7") : css("--s1");
+  if (n === 1) {                     // ultime 24 ore = l'ultima notte: fasi del sonno oppure punteggio
+    if (punt) {
+      $("sl1s").textContent = u.punteggio != null ? "Punteggio dell'ultima notte" : "Punteggio dell'ultima notte non disponibile";
+      disegna("sl1", { type: "bar", data: { labels: [u.data === oggi ? "stanotte" : dataBreve(u.data)], datasets: [
+        { label: "Punteggio", data: [u.punteggio ?? null], backgroundColor: colore, borderRadius: 6, maxBarThickness: 80 } ] }, options: o });
+    } else {
+      const fasi = FASI.filter(([k]) => u[k] != null && u[k] > 0);
+      $("sl1s").textContent = fasi.length ? "Ultima notte · ore per fase del sonno" : "Ultima notte · ore totali (fasi non disponibili)";
+      disegna("sl1", { type: "bar", data: { labels: fasi.length ? fasi.map(([, l]) => l) : ["Totale"], datasets: [
+        { label: "Ore", data: fasi.length ? fasi.map(([k]) => ore(u[k])) : [ore(u.totale)],
+          backgroundColor: fasi.length ? fasi.map(([, , c]) => css(c)) : colore, borderRadius: 6, maxBarThickness: 60 } ] }, options: o });
+    }
+    return;
+  }
+  let righe, etichette;
+  if (n > 31) {
+    righe = perSettimana(S.filter(x => x.data >= giorniFa(n - 1)), ["totale", "punteggio"]);
+    etichette = righe.map(r => dataBreve(r.data));
+    $("sl1s").textContent = punt ? "Punteggio medio per settimana" : "Ore di sonno medie per settimana";
+    o.plugins.tooltip.callbacks.title = x => `Settimana dal ${dataBreve(righe[x[0].dataIndex].data)}`;
+  } else {
+    const giorni = Array.from({ length: n }, (_, i) => giorniFa(n - 1 - i)), per = new Map(S.map(r => [r.data, r]));
+    righe = giorni.map(g => per.get(g) || {});
+    etichette = giorni.map(g => g === oggi ? "oggi" : dataBreve(g));
+    $("sl1s").textContent = punt ? "Punteggio per notte" : "Ore di sonno per notte (data del risveglio)";
+  }
+  const dati = righe.map(r => punt ? r.punteggio ?? null : r.totale != null ? ore(r.totale) : null);
+  disegna("sl1", { type: "bar", data: { labels: etichette, datasets: [
+    { label: punt ? "Punteggio" : "Sonno", data: dati, backgroundColor: colore, borderRadius: n > 7 ? 2 : 6 } ] }, options: o });
+}
 
 /* ======================= Ultima uscita ======================= */
 const ORDINE_ULTIMA = {
@@ -2344,6 +2407,9 @@ document.addEventListener("click", e => {
   if (att) { e.stopPropagation(); vai("att", Number(att.dataset.att)); }
   else if (perc) vai("perc", Number(perc.dataset.perc));
 });
+$("slper").addEventListener("change", e => { store.set("psl", e.target.value); renderSonnoPano(); });
+$("slore").addEventListener("click", () => { store.set("vsl", "ore"); renderSonnoPano(); });
+$("slpunt").addEventListener("click", () => { store.set("vsl", "punteggio"); renderSonnoPano(); });
 $("bbper").addEventListener("change", e => { store.set("pbb", e.target.value); renderBodyBattery(); });
 $("snper").addEventListener("change", e => { store.set("psonno", e.target.value); renderSonno(); });
 $("ultimacard").addEventListener("keydown", e => { if (e.key === "Enter") vai("att", Number($("ultimacard").dataset.att)); });
