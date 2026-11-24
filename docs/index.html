@@ -583,12 +583,54 @@ function baseOpts({ yTitle, reverse = false, stacked = false, tooltipFmt }) {
 }
 function disegna(id, cfg) {
   charts[id]?.destroy(); delete charts[id];
+  if (cfg.giorni) evidenziaFestivi(cfg);
   const box = $(id).parentElement, vuoto = !cfg.data.datasets.some(d => d.data.some(v => v != null && (typeof v === "object" ? v.y : v) !== 0));
   box.querySelector(".vuoto")?.remove();
   const manca = !window.Chart;          // libreria dei grafici non caricata: il resto dell'app deve funzionare comunque
   $(id).classList.toggle("hidden", vuoto || manca);
   if (vuoto || manca) { box.insertAdjacentHTML("beforeend", `<div class="vuoto empty">${manca ? "Grafico non disponibile: ricarica la pagina (↻)." : "Nessuna attività in questo intervallo."}</div>`); return; }
   charts[id] = new Chart($(id), cfg);
+}
+/* Giorni non lavorativi (sabato, domenica, festività nazionali italiane): nei grafici giorno per giorno
+   barre e punti di quei giorni sono di una tonalità più scura, e la data sull'asse è in grassetto. */
+function pasqua(y) {             // algoritmo di Gauss/Meeus per la domenica di Pasqua (calendario gregoriano)
+  const a = y % 19, b = Math.floor(y / 100), c = y % 100, d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25),
+    g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30, i = Math.floor(c / 4), k = c % 4,
+    l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451), mese = Math.floor((h + l - 7 * m + 114) / 31);
+  return new Date(y, mese - 1, ((h + l - 7 * m + 114) % 31) + 1);
+}
+const FESTE = ["01-01", "01-06", "04-25", "05-01", "06-02", "08-15", "11-01", "12-08", "12-25", "12-26"];
+function nonLavorativo(iso) {
+  if (!iso) return false;
+  const [y, m, d] = iso.split("-").map(Number), g = new Date(y, m - 1, d), dw = g.getDay();
+  if (dw === 0 || dw === 6 || FESTE.includes(iso.slice(5, 10))) return true;
+  const pm = pasqua(y); pm.setDate(pm.getDate() + 1);           // lunedì dell'Angelo
+  return pm.getMonth() === m - 1 && pm.getDate() === d;
+}
+function scurisci(col, f = .55) {   // "#rrggbb" o "#rrggbbaa" → stesso colore più scuro (opaco)
+  const h = String(col || "").trim();
+  if (!/^#[0-9a-f]{6}/i.test(h)) return col;
+  const c = [1, 3, 5].map(i => Math.round(parseInt(h.slice(i, i + 2), 16) * f).toString(16).padStart(2, "0"));
+  return "#" + c.join("");
+}
+function evidenziaFestivi(cfg) {
+  const nl = cfg.giorni.map(nonLavorativo);
+  if (!nl.some(Boolean)) return;
+  cfg.data.datasets.forEach(ds => {
+    const tipo = ds.type || cfg.type, base = ds.backgroundColor;
+    if (tipo === "bar") {
+      if (typeof base === "string") ds.backgroundColor = nl.map(x => x ? scurisci(base) : base);
+      else if (Array.isArray(base)) ds.backgroundColor = base.map((c, i) => nl[i] ? scurisci(c) : c);
+      if (typeof ds.borderColor === "string") { const b = ds.borderColor; ds.borderColor = nl.map(x => x ? scurisci(b) : b); }
+    } else {
+      const col = ds.borderColor, r = typeof ds.pointRadius === "number" ? ds.pointRadius : 3;
+      ds.pointBackgroundColor = nl.map(x => x ? scurisci(col) : col);
+      ds.pointBorderColor = ds.pointBackgroundColor;
+      ds.pointRadius = nl.map(x => x ? Math.max(r, 3.5) : r);
+    }
+  });
+  const t = cfg.options?.scales?.x?.ticks;
+  if (t) t.font = ctx => ({ size: 11, weight: nl[ctx.index] ? "700" : "400" });
 }
 /* Dettaglio dei grafici al tocco (iPhone). Safari non segnala quando il dito "lascia" il grafico, per cui il riquadro
    restava aperto. Regole: un tocco su un punto apre il dettaglio; un tocco sullo stesso punto, sul riquadro o fuori
@@ -791,14 +833,14 @@ function renderBodyBattery() {
     const giorni = Array.from({ length: n }, (_, i) => giorniFa(n - 1 - i)), per = new Map(R.map(r => [r.data, r]));
     righe = giorni.map(g => per.get(g) || {});
     etichette = giorni.map(g => g === oggi ? "oggi" : dataBreve(g));
-    $("bb1s").textContent = "Barra: minimo–massimo del giorno · punto: valore al risveglio";
+    $("bb1s").textContent = "Barra: minimo–massimo del giorno · punto: valore al risveglio · più scuri: sabato, domenica e festivi";
   }
   const o = baseOpts({ tooltipFmt: v => nf0.format(v) });
   o.scales.y.min = 0; o.scales.y.max = 100; o.scales.y.beginAtZero = true;
   o.plugins.tooltip.filter = c => c.raw != null;
   o.plugins.tooltip.callbacks.label = c => Array.isArray(c.raw) ? `Min–max: ${nf0.format(c.raw[0])}–${nf0.format(c.raw[1])}` : `${c.dataset.label}: ${nf0.format(c.raw)}`;
   if (n > 31) o.plugins.tooltip.callbacks.title = x => `Settimana dal ${dataBreve(righe[x[0].dataIndex].data)}`;
-  disegna("bb1", { type: "bar", data: { labels: etichette, datasets: [
+  disegna("bb1", { type: "bar", giorni: n > 31 ? null : righe.map((r, i) => giorniFa(n - 1 - i)), data: { labels: etichette, datasets: [
     { type: "bar", label: "Min–max", data: righe.map(r => r.bb_min != null && r.bb_max != null ? [r.bb_min, r.bb_max] : null),
       backgroundColor: css("--s3") + "66", borderColor: css("--s3"), borderWidth: 1, borderRadius: n > 7 ? 2 : 4, borderSkipped: false },
     { type: "line", label: "Al risveglio", data: righe.map(r => r.bb_risveglio ?? null), borderColor: css("--s1"), backgroundColor: css("--s1"),
@@ -869,10 +911,10 @@ function renderSonnoPano() {
     const giorni = Array.from({ length: n }, (_, i) => giorniFa(n - 1 - i)), per = new Map(S.map(r => [r.data, r]));
     righe = giorni.map(g => per.get(g) || {});
     etichette = giorni.map(g => g === oggi ? "oggi" : dataBreve(g));
-    $("sl1s").textContent = punt ? "Punteggio per notte" : "Ore di sonno per notte (data del risveglio)";
+    $("sl1s").textContent = (punt ? "Punteggio per notte" : "Ore di sonno per notte (data del risveglio)") + " · più scure: sabato, domenica e festivi";
   }
   const dati = righe.map(r => punt ? r.punteggio ?? null : r.totale != null ? ore(r.totale) : null);
-  disegna("sl1", { type: "bar", data: { labels: etichette, datasets: [
+  disegna("sl1", { type: "bar", giorni: n > 31 ? null : righe.map((r, i) => giorniFa(n - 1 - i)), data: { labels: etichette, datasets: [
     { label: punt ? "Punteggio" : "Sonno", data: dati, backgroundColor: colore, borderRadius: n > 7 ? 2 : 6 } ] }, options: o });
 }
 
@@ -2253,7 +2295,7 @@ function renderRecupero() {
   if (c) {
     const o = baseOpts({ tooltipFmt: v => `${nf0.format(v)} bpm` }); o.scales.y.beginAtZero = false;
     if (n > 31) o.plugins.tooltip.callbacks.title = x => `Settimana dal ${dataBreve(serie[x[0].dataIndex].data)}`;
-    disegna("rc1", { type: "line", data: { labels: serie.map(r => dataBreve(r.data)), datasets: [{ label: n > 31 ? "FC a riposo, media settimanale" : "FC a riposo", data: serie.map(r => r.fc_riposo),
+    disegna("rc1", { type: "line", giorni: n > 31 ? null : serie.map(r => r.data), data: { labels: serie.map(r => dataBreve(r.data)), datasets: [{ label: n > 31 ? "FC a riposo, media settimanale" : "FC a riposo", data: serie.map(r => r.fc_riposo),
       borderColor: css("--s2"), backgroundColor: css("--s2"), borderWidth: 2, pointRadius: serie.length > 40 ? 0 : 3, pointHoverRadius: 4, tension: .25 }] }, options: o });
   } else { charts.rc1?.destroy(); delete charts.rc1; }
 }
@@ -2315,13 +2357,13 @@ function renderSonno() {
     const o1 = baseOpts({ stacked: true, tooltipFmt: (v, tick) => tick ? `${nf0.format(v)} h` : hm(v * 3600) });
     o1.plugins.tooltip.callbacks.footer = c => `${sett ? "Media per notte" : "Totale"}: ${hm(righe[c[0].dataIndex].totale)}`;
     if (sett) o1.plugins.tooltip.callbacks.title = c => `Settimana dal ${dataBreve(righe[c[0].dataIndex].data)} · ${righe[c[0].dataIndex].n} notti`;
-    disegna("sn1", { type: "bar", data: { labels, datasets: ds }, options: o1 });
+    disegna("sn1", { type: "bar", giorni: sett ? null : righe.map(x => x.data), data: { labels, datasets: ds }, options: o1 });
 
     // punteggio
     if (righe.some(x => x.punteggio != null)) {
       const o2 = baseOpts({ tooltipFmt: v => nf0.format(v) }); o2.scales.y.beginAtZero = false;
       if (sett) o2.plugins.tooltip.callbacks.title = c => `Settimana dal ${dataBreve(righe[c[0].dataIndex].data)}`;
-      disegna("sn2", { type: "line", data: { labels, datasets: [{ label: "Punteggio", data: righe.map(x => x.punteggio),
+      disegna("sn2", { type: "line", giorni: sett ? null : righe.map(x => x.data), data: { labels, datasets: [{ label: "Punteggio", data: righe.map(x => x.punteggio),
         borderColor: css("--s1"), backgroundColor: css("--s1"), borderWidth: 2, pointRadius: righe.length > 40 ? 0 : 3, pointHoverRadius: 4, spanGaps: true, tension: .25 }] }, options: o2 });
     } else $("sn2card").classList.add("hidden");
   }
@@ -2332,7 +2374,7 @@ function renderSonno() {
   if (h.some(x => x.notte)) {
     legenda("sn3l", [["Notte", css("--s1")], ["Media 7 giorni", css("--s2")]]);
     const o3 = baseOpts({ tooltipFmt: v => `${nf0.format(v)} ms` }); o3.scales.y.beginAtZero = false;
-    disegna("sn3", { type: "line", data: { labels: h.map(x => dataBreve(x.data)), datasets: [
+    disegna("sn3", { type: "line", giorni: n > 31 ? null : h.map(x => x.data), data: { labels: h.map(x => dataBreve(x.data)), datasets: [
       { label: "Notte", data: h.map(x => x.notte), borderColor: css("--s1"), backgroundColor: css("--s1"), borderWidth: h.length > 60 ? 1.5 : 2, pointRadius: 0, pointHoverRadius: 4, spanGaps: true, tension: .25 },
       { label: "Media 7 giorni", data: h.map(x => x.sett), borderColor: css("--s2"), backgroundColor: css("--s2"), borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, spanGaps: true, tension: .25 },
     ] }, options: o3 });
