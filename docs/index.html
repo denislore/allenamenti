@@ -259,8 +259,8 @@ footer button { background: none; border: 0; color: var(--ink2); text-decoration
       <button class="avvisostato hidden" id="avvisostato"></button>
       <div class="avvisostato info hidden" id="avvisometeo" role="status"></div>
       <button class="inbox hidden" id="inbox"></button>
-      <div class="chips" id="sportchips"></div>
-      <div class="chips" id="periodchips"></div>
+      <div id="filtrihead"><div class="chips" id="sportchips"></div>
+      <div class="chips" id="periodchips"></div></div>
     </div>
   </header>
 
@@ -282,6 +282,7 @@ footer button { background: none; border: 0; color: var(--ink2); text-decoration
       <p class="sub" id="sl1s" style="margin-top:8px"></p>
       <div class="chartbox"><canvas id="sl1"></canvas></div>
     </section>
+    <div id="filtripano" style="margin:16px 0 4px"></div>
     <section class="card ultima hidden" id="ultimacard" role="button" tabindex="0"></section>
     <div class="periodo" id="periodolbl"></div>
     <div class="kpis" id="kpis" style="margin-top:12px"></div>
@@ -750,6 +751,8 @@ function render() {
   if (!DATA) return;
   renderChips(); renderInbox(); renderAvviso();
   const v = stato.vista, pano = v === "pano";
+  // in Panoramica i filtri stanno sotto la sezione Sonno; nelle altre viste restano in alto
+  $(pano ? "filtripano" : "filtrihead").append($("sportchips"), $("periodchips"));
   $("periodchips").classList.toggle("hidden", !pano);
   $("sportchips").classList.toggle("hidden", v === "sonno");
   ["pano", "perc", "sonno"].forEach(k => {
