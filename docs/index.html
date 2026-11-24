@@ -265,7 +265,9 @@ footer button { background: none; border: 0; color: var(--ink2); text-decoration
     <section class="card hidden" id="bbcard">
       <h2>Body Battery</h2><p class="sub" id="bbsub"></p>
       <div class="kpis" id="bbkpi"></div>
-      <h3 class="minititolo">Ultimi 7 giorni</h3><p class="sub">Barra: minimo–massimo del giorno · punto: valore al risveglio</p>
+      <div class="selperiodo"><label for="bbper">Andamento</label>
+        <select id="bbper"><option value="7">ultimi 7 giorni</option><option value="30">ultimi 30 giorni</option><option value="365">ultimi 12 mesi</option></select></div>
+      <p class="sub" id="bb1s" style="margin-top:8px"></p>
       <div class="chartbox"><canvas id="bb1"></canvas></div>
     </section>
     <section class="card ultima hidden" id="ultimacard" role="button" tabindex="0"></section>
@@ -760,21 +762,33 @@ function renderBodyBattery() {
   $("bbsub").textContent = `Dato Garmin di ${quando} · da 0 a 100`;
   const kpi = (l, v, d) => `<div class="kpi"><div class="l">${l}</div><div class="v">${v == null ? "–" : nf0.format(v)}</div><div class="d">${d}</div></div>`;
   const giro = [u.bb_min != null ? `min ${nf0.format(u.bb_min)}` : "", u.bb_max != null ? `max ${nf0.format(u.bb_max)}` : ""].filter(Boolean).join(" · ");
-  const sett = R.filter(r => r.data >= giorniFa(6)), mRisv = media(sett.map(r => r.bb_risveglio).filter(v => v != null));
+  const uR = [...R].reverse().find(r => r.bb_risveglio != null);
   $("bbkpi").innerHTML = kpi(etichetta, valore, giro || "&nbsp;") +
-    kpi("Media al risveglio", mRisv, mRisv == null ? "dato non disponibile" : "ultimi 7 giorni");
-  const giorni = Array.from({ length: 7 }, (_, i) => giorniFa(6 - i)), per = new Map(R.map(r => [r.data, r]));
-  const righe = giorni.map(g => per.get(g) || {});
+    kpi("Al risveglio", uR?.bb_risveglio, uR ? (uR.data === oggi ? "stamattina" : `il ${dataBreve(uR.data)}`) : "dato non disponibile");
+  const n = periodoBB(); $("bbper").value = String(n);
+  let righe, etichette;
+  if (n > 31) {                    // 12 mesi: medie settimanali (da lunedì) di minimo, massimo e risveglio
+    righe = perSettimana(R.filter(r => r.data >= giorniFa(n - 1)), ["bb_min", "bb_max", "bb_risveglio"]);
+    etichette = righe.map(r => dataBreve(r.data));
+    $("bb1s").textContent = "Medie settimanali · barra: minimo–massimo · punto: valore al risveglio";
+  } else {                         // 7 o 30 giorni: un valore per giorno, i giorni senza dati restano vuoti
+    const giorni = Array.from({ length: n }, (_, i) => giorniFa(n - 1 - i)), per = new Map(R.map(r => [r.data, r]));
+    righe = giorni.map(g => per.get(g) || {});
+    etichette = giorni.map(g => g === oggi ? "oggi" : dataBreve(g));
+    $("bb1s").textContent = "Barra: minimo–massimo del giorno · punto: valore al risveglio";
+  }
   const o = baseOpts({ tooltipFmt: v => nf0.format(v) });
   o.scales.y.min = 0; o.scales.y.max = 100; o.scales.y.beginAtZero = true;
   o.plugins.tooltip.filter = c => c.raw != null;
   o.plugins.tooltip.callbacks.label = c => Array.isArray(c.raw) ? `Min–max: ${nf0.format(c.raw[0])}–${nf0.format(c.raw[1])}` : `${c.dataset.label}: ${nf0.format(c.raw)}`;
-  disegna("bb1", { type: "bar", data: { labels: giorni.map(g => g === oggi ? "oggi" : dataBreve(g)), datasets: [
+  if (n > 31) o.plugins.tooltip.callbacks.title = x => `Settimana dal ${dataBreve(righe[x[0].dataIndex].data)}`;
+  disegna("bb1", { type: "bar", data: { labels: etichette, datasets: [
     { type: "bar", label: "Min–max", data: righe.map(r => r.bb_min != null && r.bb_max != null ? [r.bb_min, r.bb_max] : null),
-      backgroundColor: css("--s3") + "66", borderColor: css("--s3"), borderWidth: 1, borderRadius: 4, borderSkipped: false },
+      backgroundColor: css("--s3") + "66", borderColor: css("--s3"), borderWidth: 1, borderRadius: n > 7 ? 2 : 4, borderSkipped: false },
     { type: "line", label: "Al risveglio", data: righe.map(r => r.bb_risveglio ?? null), borderColor: css("--s1"), backgroundColor: css("--s1"),
-      borderWidth: 2, pointRadius: 4, pointHoverRadius: 5, tension: .25, spanGaps: true } ] }, options: o });
+      borderWidth: 2, pointRadius: n > 7 ? 2 : 4, pointHoverRadius: 5, tension: .25, spanGaps: true } ] }, options: o });
 }
+const periodoBB = () => { const n = Number(store.get("pbb")); return [7, 30, 365].includes(n) ? n : 7; };
 
 /* ======================= Ultima uscita ======================= */
 const ORDINE_ULTIMA = {
@@ -2310,6 +2324,7 @@ document.addEventListener("click", e => {
   if (att) { e.stopPropagation(); vai("att", Number(att.dataset.att)); }
   else if (perc) vai("perc", Number(perc.dataset.perc));
 });
+$("bbper").addEventListener("change", e => { store.set("pbb", e.target.value); renderBodyBattery(); });
 $("snper").addEventListener("change", e => { store.set("psonno", e.target.value); renderSonno(); });
 $("ultimacard").addEventListener("keydown", e => { if (e.key === "Enter") vai("att", Number($("ultimacard").dataset.att)); });
 $("logout").onclick = () => { store.del("pw"); try { sessionStorage.removeItem("pw"); } catch {} location.reload(); };
